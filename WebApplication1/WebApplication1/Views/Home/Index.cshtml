@@ -1,0 +1,85 @@
+﻿@{
+    ViewBag.Title = "全部加载";
+    Layout = null;
+}
+<div id="app">
+</div>
+<!--vue.js-->
+<script src="~/Scripts/vue.min.js"></script>
+<!-- element-ui -->
+<link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css">
+<script src="https://unpkg.com/element-ui/lib/index.js"></script>
+<!--pdf.js-->
+<script src="~/Scripts/pdf.js"></script>
+<script>
+    var app = new Vue({
+        el: '#app',
+        data: {
+            pdfDoc: null,
+            pageNum: 1,//当前页
+            numPages: 0,//总页数
+            pageRendering: false,//是否正在加载一页
+            pageNumPending: null,//正在加载一页时当前页的页码
+            desiredWidth: 800, //pdf默认加载宽度（需要的话）
+        },
+        mounted() {
+            //pdf.js相关设置
+            pdfjsLib.workerSrc = "~/Scripts/pdf.worker.js";
+            pdfjsLib.cMapUrl = "~/Content/cmaps/";  //加载字体库
+            pdfjsLib.cMapPacked = true;
+            //加载
+            this.loadPdf("http://localhost:56157/Content/compressed.tracemonkey-pldi-09.pdf");
+        },
+        methods: {
+            loadPdf(url) {
+                pdfjsLib.getDocument(url).promise.then(pdfDoc_ => {
+                    console.log('pdf加载完成');
+                    this.numPages = pdfDoc_.numPages;//总页数
+                    this.pdfDoc = pdfDoc_;
+                    //pdf文件页数有误
+                    if (!pdfDoc_.numPages) {
+                        return;
+                    }
+                    // 初始化
+                    for (var i = 0; i < pdfDoc_.numPages;i++) {
+                        this.renderPage(i);
+                    }
+                }, err => {
+                    // PDF 加载失败
+                    console.error(err);
+                });
+            },
+            renderPage(num) { //原始宽高
+                this.pageRendering = true;
+                // 使用promise获取页面
+                this.pdfDoc.getPage(num).then(page => {
+                    console.log('页面获取成功，开始渲染');
+                    var viewport = page.getViewport({ scale: 1 });
+                    //固定宽度（高度设置原理一样）
+                    var scale = this.desiredWidth / viewport.width; //计算新的缩放比例
+                    var scaledViewport = page.getViewport({ scale: scale, });
+                    //获取canvas对象
+                    var canvas = document.createElement("canvas");
+                    var element = document.getElementById("app");
+                    var ctx = canvas.getContext('2d');
+                    canvas.height = scaledViewport.height;
+                    canvas.width = scaledViewport.width;
+                    //可通过canvas制定各种效果
+                    //...
+                    //将PDF页面呈现到画布上下文中
+                    var renderContext = {
+                        canvasContext: ctx,
+                        viewport: scaledViewport
+                    };
+                    //渲染 
+                    page.render(renderContext);
+                    element.appendChild(canvas);
+                  
+                });
+
+                // 更新页面计数
+                this.pageNum = num;
+            }
+        }
+    });
+</script>

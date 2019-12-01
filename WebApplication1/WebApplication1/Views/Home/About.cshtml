@@ -1,0 +1,142 @@
+﻿@{
+    ViewBag.Title = "单个加载";
+    Layout = null;
+}
+<div id="app">
+    <el-row>
+        <el-col :span="24">
+            <el-button type="primary" @@click="Previous">上一页</el-button>
+            <el-button type="primary" @@click="Next">下一页</el-button>
+            &nbsp; &nbsp;
+            <span>当前页: <span>{{pageNum}}</span> / <span>{{numPages}}</span></span>
+        </el-col>
+    </el-row>
+    <div style="margin:0 auto;text-align:center;width:800px;">
+        <canvas id="the-canvas"></canvas>
+    </div>
+
+</div>
+<!--vue.js-->
+<script src="~/Scripts/vue.min.js"></script>
+<!-- element-ui -->
+<link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css">
+<script src="https://unpkg.com/element-ui/lib/index.js"></script>
+<!--pdf.js-->
+<script src="~/Scripts/pdf.js"></script>
+<script>
+    var app = new Vue({
+        el: '#app',
+        data: {
+            pdfDoc: null,
+            ctx: null,
+            canvas: null,
+            pageNum: 1,//当前页
+            numPages: 0,//总页数
+            pageRendering: false,//是否正在加载一页
+            pageNumPending: null,//正在加载一页时当前页的页码
+            desiredWidth: 800, //pdf默认加载宽度（需要的话）
+        },
+        mounted() {
+            //获取canvas对象
+            this.canvas = document.getElementById('the-canvas');
+            this.ctx = this.canvas.getContext('2d');
+            //pdf.js相关设置
+            pdfjsLib.workerSrc = "~/Scripts/pdf.worker.js";
+            pdfjsLib.cMapUrl = "~/Content/cmaps/";  //加载字体库
+            pdfjsLib.cMapPacked = true;
+            //加载
+            this.loadPdf("http://localhost:56157/Content/compressed.tracemonkey-pldi-09.pdf");
+        },
+        methods: {
+            loadPdf(url) {
+                pdfjsLib.getDocument(url).promise.then(pdfDoc_ => {
+                    console.log('pdf加载完成');
+                    this.numPages = pdfDoc_.numPages;//总页数
+                    this.pdfDoc = pdfDoc_;
+                    //pdf文件页数有误
+                    if (!pdfDoc_.numPages) {
+                        return;
+                    }
+                    // 初始化第一页
+                    this.renderPage(1);
+                }, err => {
+                    // PDF 加载失败
+                    console.error(err);
+                });
+            },
+            loadPdfByBase64(pdfData) {
+                //转换为二进制
+                var _pdfData = atob(pdfData);
+                pdfjsLib.getDocument({ data: _pdfData }).then(pdfDoc_ => {
+                    console.log('pdf加载完成');
+                    this.numPages = pdfDoc_.numPages;//总页数
+                    this.pdfDoc = pdfDoc_;
+                    //pdf文件页数有误
+                    if (!pdfDoc_.numPages) {
+                        return;
+                    }
+                    // 初始化第一页
+                    this.renderPage(1);
+                }, err => {
+                    // PDF 加载失败
+                    console.error(err);
+                });
+            },
+            renderPage(num) { //原始宽高
+                this.pageRendering = true;
+                // 使用promise获取页面
+                this.pdfDoc.getPage(num).then(page => {
+                    console.log('页面获取成功，开始渲染');
+                    var viewport = page.getViewport({ scale: 1 });
+                    //固定宽度（高度设置原理一样）
+                    var scale = this.desiredWidth / viewport.width; //计算新的缩放比例
+                    var scaledViewport = page.getViewport({ scale: scale, });
+                    this.canvas.height = scaledViewport.height;
+                    this.canvas.width = scaledViewport.width;
+                    //可通过canvas制定各种效果
+                    //...
+                    //将PDF页面呈现到画布上下文中
+                    var renderContext = {
+                        canvasContext: this.ctx,
+                        viewport: scaledViewport
+                    };
+                    var renderTask = page.render(renderContext);
+                    // 等待渲染完成
+                    renderTask.promise.then(() => {
+                        console.log('页面渲染完成');
+                        this.pageRendering = false;
+                        if (this.pageNumPending !== null) {
+                            // 渲染新的页面(当在渲染一个页面时点击下一页之类的操作。可屏蔽，拦截事件或者不可点就行)
+                            this.renderPage(this.pageNumPending);
+                            this.pageNumPending = null;
+                        }
+                    });
+                });
+
+                // 更新页面计数
+                this.pageNum = num;
+            },
+            queueRenderPage(num) {//如果另一个页面呈现正在进行中，则等待直到呈现完成。否则，立即执行呈现。
+                if (this.pageRendering) {
+                    this.pageNumPending = num;
+                } else {
+                    this.renderPage(num);
+                }
+            },
+            Previous() {//显示前一页。
+                if (this.pageNum <= 1) {
+                    return;
+                }
+                this.pageNum--;
+                this.queueRenderPage(this.pageNum);
+            },
+            Next() {//显示下一个页面。
+                if (this.pageNum >= this.pdfDoc.numPages) {
+                    return;
+                }
+                this.pageNum++;
+                this.queueRenderPage(this.pageNum);
+            }
+        }
+    });
+</script>
